@@ -67,6 +67,7 @@ module Chemistry
     #
     def new
       @page = Chemistry::Page.new(page_params)
+      @page.page_collection_id = params[:page_collection_id]
       render layout: no_layout_if_pjax
     end
 
