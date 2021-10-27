@@ -60,7 +60,7 @@ module Chemistry
   
     def create
       if @page_collection.update(page_collection_params)
-        redirect_to page_collection_home_url(@page_collection)
+        redirect_to root_url
       else
         render action: :new
       end
