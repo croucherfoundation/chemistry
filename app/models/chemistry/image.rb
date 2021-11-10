@@ -1,33 +1,30 @@
 require "open-uri"
 module Chemistry
   class Image < ApplicationRecord
+    include ActiveStorageSupport::SupportForBase64
+
     belongs_to :user, class_name: Chemistry.config.user_class, foreign_key: Chemistry.config.user_key
 
-    has_attached_file :file,
-      preserve_files: true,
-      styles: {
-        thumb: "96x96#",
-        half: "560x",
-        full: "1120x",
-        hero: "1600x900#"
-      },
-      convert_options: {
-        thumb: "-strip",
-        half: "-quality 40 -strip",
-        full: "-quality 40 -strip",
-        hero: "-quality 25 -strip",
-      }
-
-    validates_attachment_content_type :file, :content_type => /\Aimage/
+    has_one_base64_attached :file
 
     scope :created_by, -> users {
       users = [users].flatten
       where(user_id: users.map(&:id))
     }
 
-    def file_url(style=:full, decache=true)
-      if file?
-        url = file.url(style, decache)
+    def sizes
+      {
+        thumb:    { resize: "96x96" },
+        half:     { resize: "560x" },
+        full:     { resize: "1120x" },
+        hero:     { resize: "1600x900" },
+        original: { resize: ""}
+      }
+    end
+
+    def file_url(size=:full)
+      if file.attached?
+        file.variant(self.sizes[size]).processed.url
       else
         ""
       end
@@ -35,18 +32,34 @@ module Chemistry
 
     def file_data=(data)
       if data
-        self.file = data
+        self.file = { data: data }
       else
         self.file = nil
       end
     end
-  
+
+    def file_name
+      if file.attached?
+        file.filename.to_s
+      end
+    end
+
+    def file_content_type
+      if file.attached?
+        file.content_type
+      end
+    end
+
     def file_name=(name)
-      self.file_file_name = name
+      if file.attached?
+        file.filename = name
+      end
     end
 
     def file_type=(content_type)
-      self.file_content_type = content_type
+      if file.attached?
+        file.content_type = content_type
+      end
     end
 
     def remote_url=(url)
@@ -72,7 +85,7 @@ module Chemistry
     def file_size
       file_file_size
     end
- 
+
     def thumb_url
       file_url(:thumb)
     end

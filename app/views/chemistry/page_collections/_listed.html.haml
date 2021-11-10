@@ -4,7 +4,7 @@
 
 %li.page_collection{id: "page_collection_#{page_collection.id}"}
   %h3
-    = link_to chemistry.page_collection_url(page_collection), class: "show" do
+    = link_to chemistry.page_collection_url(page_collection.slug), class: "show" do
       = strip_tags(page_collection.title)
     - if can?(:edit, page_collection)
       = link_to chemistry.edit_page_collection_url(page_collection), class: "edit" do
