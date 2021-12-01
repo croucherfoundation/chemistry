@@ -235,299 +235,54 @@ module Chemistry
     end
 
 
+    ## Elasticsearch indexing
+    #
+    searchkick searchable: [:path, :working_title, :title, :content, :byline],
+               word_start: [:title],
+               highlight: [:title, :content]
+
     scope :search_import, -> { includes(:image, :page_collection, :page_category) }
 
-    searchkick callbacks: :async,
-             highlight: [:title, :content],
-             mappings: {
-               dynamic_templates: [
-                 {
-                   string_template: {
-                     match: "*",
-                     match_mapping_type: "string",
-                     mapping: {
-                       fields: {
-                         analyzed: {
-                           index: true,
-                           type: "text"
-                         }
-                       },
-                       ignore_above: 30000,
-                       type: "keyword"
-                     }
-                   }
-                 }
-               ],
-               properties: {
-                 id: {type: "long"},
-                 uid: {type: "keyword"},
-
-                 # analyzed for text search
-                 title: {
-                   type: "text",
-                   fields: {
-                     analyzed: {
-                       index: true,
-                       type: "text"
-                     }
-                   }
-                 },
-                 content: {
-                   type: "text",
-                   fields: {
-                    analyzed: {
-                      index: true,
-                      type: "text"
-                    }
-                   },
-                   term_vector: "with_positions_offsets"
-                 },
-
-                 # unexamined, precomputed values for use in views
-                 display: {
-                   type: "object",
-                   enabled: false
-                 },
-
-                 # structured for retrieval and aggregation
-                 published_at: {type: "date"},
-                 featured_at: {type: "date"},
-                 institution_code: {type: "keyword"},
-
-                 # nested list of awards for retrieval and aggregation
-                 awards: {
-                   type: "nested",
-                   properties: {
-                     name: {type: "keyword"},
-                     year: {type: "short"},
-                     years: {type: "short"},
-                     award_type_code: {type: "keyword"},
-                     country_code: {type: "keyword"},
-                     institution_code: {type: "keyword"},
-                     location: {type: "geo_point"},
-
-                     # more precomputed values for use in views
-                     display: {
-                       type: "object",
-                       enabled: false
-                     }
-                   }
-                 }
-               }
-             }
-
-     # Document
-    #
     def search_data
-     data = {
-       uid: person_uid,
-       title: title,
-       slug: slug,
-       content: content,
-       display: {}
-     }
-     if person
-       data[:institution_code] = person.institution_code
-       data[:display].merge!({
-         title: person.normalized_title,
-         post: person.post,
-         department: person.department,
-         employer: person.short_institution_or_employer
-       })
-       awards = person.awards
-       if awards && awards.any?
-         data[:awards] = awards.map(&:search_data)
-         data[:year] = awards.last.year
-       end
-     end
-     if published?
-       data[:published_at] = published_at
-       data[:featured_at] = featured_at
-       data[:display].merge!({
-         title: published_title,
-         content: published_content,
-       })
-       if image
-         data[:display].merge!({
-           image: image,
-           caption: image.caption,
-           image_url: image.file_url(:feature)
-         })
-       end
-     else
-       data[:published_at] = nil
-       data[:featured_at] = nil
-     end
-     if user
-       data[:display].merge!({
-         email: user.email,
-         phone: user.phone,
-         address: user.best_address
-       })
-     end
-     data
-    end
+      fields = {
+        # chiefly for UI retrieval
+        slug: published_slug.presence || slug,
+        path: published_path.presence || path,
+        style: published_style.presence || style,
+        title: strip_tags(published_title.presence || title),
 
-    #
-    ## Query
-    def self.search_and_aggregate(options={})
-      agg_filters = {}
+        # public archive / search
+        masthead: strip_tags(published_masthead.presence || masthead),
+        content: strip_tags(published_content.presence || content),
+        byline: strip_tags(published_byline.presence || byline),
+        summary: strip_tags(published_summary.presence || summary),
+        excerpt: strip_tags(published_excerpt.presence || excerpt),
+        terms: terms_list,
+        image_url: image_url,
+        thumbnail_url: thumbnail_url,
+        page_collection_name: page_collection_name,
+        page_category_name: page_category_name,
 
-      if options[:award_type_codes].present?
-        award_type_codes = [options[:award_type_codes]].flatten
-        if award_type_codes.any?
-          agg_filters[:award_type_code] = {terms: {"awards.award_type_code" => award_type_codes}}
-        end
-      end
-
-      if options[:country_codes].present?
-        country_codes = [options[:country_codes]].flatten
-        if country_codes.any?
-          agg_filters[:country_code] = {terms: {"awards.country_code" => country_codes}}
-        end
-      end
-
-      if options[:institution_codes].present?
-        institution_codes = [options[:institution_codes]].flatten
-        if institution_codes.any?
-          agg_filters[:institution_code] = {terms: {"awards.institution_code" => institution_codes}}
-        end
-      end
-
-      if options[:years].present?
-        years = [options[:years]].flatten.map(&:to_i)
-        if years.any?
-          agg_filters[:years] = {terms: {"awards.years" => years}}
-        end
-      end
-
-
-      if [options[:n], options[:e], options[:s], options[:w]].all?(&:present?)
-        e = [[options[:e].to_f, 180].min, -180].max
-        w = [[options[:w].to_f, 180].min, -180].max
-        bounds_filter = {geo_bounding_box: {"awards.location" => {top_left: {lat: options[:n].to_f, lon: w}, bottom_right: {lat: options[:s].to_f, lon: e}}}}
-      end
-
-      # Filters for which we are already paramed should be applied in post-filter, not query
-      # so that the aggregations show alternative counts rather than further-reduction counts
-      #
-      queries = []
-
-      if bounds_filter
-        queries.push({
-          nested: {
-            path: "awards",
-            query: {
-              bool: {
-                must: [bounds_filter]
-              }
-            }
-          }
-        })
-      end
-
-      if options[:q].present?
-        queries.push({
-          multi_match: {
-            query: options[:q],
-            fields: ['title^5', 'path^2', 'summary^3', 'content', 'byline']
-          },
-        })
-      end
-
-      agg_clauses = [:country_code, :institution_code, :award_type_code, :years].each_with_object({}) do |k, h|
-        other_agg_filters = agg_filters.except(k)
-        field_agg = {
-          terms: {
-            field: "awards.#{k}",
-            size: 50
-          }
-        }
-        h[k] = {
-          filter: {
-            bool: {
-              must: other_agg_filters.values
-            }
-          },
-          aggs: {
-            k => field_agg
-          }
-        }
-      end
-
-      aggs = {
-        awards: {
-          nested: {
-            path: "awards"
-          },
-          aggs: agg_clauses
-        }
+        # aggregation and selection
+        parent_id: parent_id,
+        page_collection: page_collection_slug,
+        page_collection_id: page_collection_id,
+        page_category: page_category_slug,
+        page_category_id: page_category_id,
+        created_at: created_at,
+        updated_at: updated_at,
+        published: published?,
+        published_at: published_at,
+        searchable: searchable?,
+        collection_featured: page_collection_featured?,
+        featured: featured?,
+        featured_at: featured_at,
+        date: featured_at.presence || published_at.presence || created_at,
+        year: year,
+        month: month_and_year
       }
-
-      sorts = []
-      if options[:sort].present?
-        direction = options[:order].presence || (options[:sort] == 'year' ? :desc : :asc)
-        sorts.push({options[:sort] => direction})
-      elsif options[:q].present?
-        sorts.push({_score: :desc})
-      else
-        sorts.push({year: :desc})
-      end
-
-      post_queries = []
-      if agg_filters.any?
-        post_queries.push({
-          nested: {
-            path: "awards",
-            query: {
-              bool: {
-                must: agg_filters.values
-              }
-            }
-          }
-        })
-      end
-
-      body = {
-        query: {
-          bool: {
-            must: queries,
-            filter: [
-              bool: {
-                must: {
-                  term: {"blacklisted": {value: false}}
-                }
-              }
-            ]
-          }
-        },
-        sort: sorts,
-        aggregations: aggs,
-        post_filter: {
-          bool: {
-            must: post_queries
-          }
-        }
-      }
-
-      if options[:pp].present?
-        per_page = options[:pp].presence || 50
-        if options[:p]
-          page = [options[:p].to_i, 1].max
-        else
-          page = 1
-        end
-        body[:from] = (page - 1) * per_page
-        body[:size] = per_page
-        arguments = {body: body, load: false, page: page, per_page: per_page}
-      else
-        body[:size] = 10000
-        arguments = {body: body, load: false, per_page: 10000}
-      end
-
-      Chemistry::Page.search(arguments)
+      fields.merge(extra_search_data)
     end
-
 
     def extra_search_data
       {}
@@ -537,90 +292,90 @@ module Chemistry
     # Here we support the public archive and admin interfaces with faceting and date-filtering controls.
     # There is also a simpler filter-and-paginate search in the Pages API.
 
-    # def self.search_and_aggregate(params={})
-    #   Rails.logger.warn "🌸 Page.search_and_aggregate #{params.inspect}"
-    #
-    #   # search
-    #   #
-    #   fields = ['title^5', 'path^2', 'summary^3', 'content', 'byline']
-    #   highlight = {tag: "<strong>", fields: {title: {fragment_size: 40}, content: {fragment_size: 320}}}
-    #
-    #   if params[:q].present?
-    #     terms = params[:q]
-    #     default_order = {_score: :desc}
-    #   else
-    #     terms = "*"
-    #     default_order = {created_at: :desc}
-    #   end
-    #
-    #   # filter
-    #   #
-    #   criteria = { published: true, searchable: true }
-    #   criteria[:page_collection] = params[:page_collection] if params[:page_collection].present?
-    #   criteria[:page_category] = params[:page_category] if params[:page_category].present?
-    #   criteria[:terms] = params[:terms] if params[:term].present?
-    #
-    #   if params[:date_from].present? or params[:date_to].present?
-    #     criteria[:date] = {}
-    #     criteria[:date][:gt] = Date.parse(params[:date_from]).beginning_of_day if params[:date_from].present?
-    #     criteria[:date][:lte] = Date.parse(params[:date_to]).end_of_day if params[:date_to].present?
-    #   elsif params[:month].present? and params[:year].present?
-    #     criteria[:month] = [params[:year], params[:month]].join('/')
-    #   end
-    #
-    #   # sort
-    #   #
-    #   if params[:sort].present?
-    #     if params[:order].present?
-    #       order = {params[:sort] => params[:order]}
-    #     elsif %w{created_at featured_at published_at}.include?(params[:sort])
-    #       order = {params[:sort] => :desc}
-    #     else
-    #       order = {params[:sort] => :asc}
-    #     end
-    #   elsif params[:order].present?
-    #     order = {published_at: params[:order]}
-    #   else
-    #     order = default_order
-    #   end
-    #
-    #   # paginate
-    #   #
-    #   per_page = (params[:show].presence || 20).to_i
-    #   page = (params[:page].presence || 1).to_i
-    #
-    #   # aggregate
-    #   #
-    #   aggregations = {
-    #     month: {},
-    #     year: {},
-    #     page_category: {},
-    #     page_collection: {},
-    #   }
-    #
-    #   body_options = {
-    #     aggs: {
-    #       date_stats: { "stats": { "field": "date" } }
-    #     }
-    #   }
-    #
-    #   options = {
-    #     load: false,
-    #     fields: fields,
-    #     where: criteria,
-    #     order: order,
-    #     per_page: per_page,
-    #     page: page,
-    #     highlight: highlight,
-    #     aggs: aggregations,
-    #     body_options: body_options
-    #   }
-    #   Rails.logger.warn "🌸 search options: #{terms}, #{options.inspect}"
-    #
-    #   # fetch
-    #   #
-    #   Page.search terms, options
-    # end
+    def self.search_and_aggregate(params={})
+      Rails.logger.warn "🌸 Page.search_and_aggregate #{params.inspect}"
+
+      # search
+      #
+      fields = ['title^5', 'path^2', 'summary^3', 'content', 'byline']
+      highlight = {tag: "<strong>", fields: {title: {fragment_size: 40}, content: {fragment_size: 320}}}
+
+      if params[:q].present?
+        terms = params[:q]
+        default_order = {_score: :desc}
+      else
+        terms = "*"
+        default_order = {created_at: :desc}
+      end
+
+      # filter
+      #
+      criteria = { published: true, searchable: true }
+      criteria[:page_collection] = params[:page_collection] if params[:page_collection].present?
+      criteria[:page_category] = params[:page_category] if params[:page_category].present?
+      criteria[:terms] = params[:terms] if params[:term].present?
+
+      if params[:date_from].present? or params[:date_to].present?
+        criteria[:date] = {}
+        criteria[:date][:gt] = Date.parse(params[:date_from]).beginning_of_day if params[:date_from].present?
+        criteria[:date][:lte] = Date.parse(params[:date_to]).end_of_day if params[:date_to].present?
+      elsif params[:month].present? and params[:year].present?
+        criteria[:month] = [params[:year], params[:month]].join('/')
+      end
+
+      # sort
+      #
+      if params[:sort].present?
+        if params[:order].present?
+          order = {params[:sort] => params[:order]}
+        elsif %w{created_at featured_at published_at}.include?(params[:sort])
+          order = {params[:sort] => :desc}
+        else
+          order = {params[:sort] => :asc}
+        end
+      elsif params[:order].present?
+        order = {published_at: params[:order]}
+      else
+        order = default_order
+      end
+
+      # paginate
+      #
+      per_page = (params[:show].presence || 20).to_i
+      page = (params[:page].presence || 1).to_i
+
+      # aggregate
+      #
+      aggregations = {
+        month: {},
+        year: {},
+        page_category: {},
+        page_collection: {},
+      }
+
+      body_options = {
+        aggs: {
+          date_stats: { "stats": { "field": "date" } }
+        }
+      }
+
+      options = {
+        load: false,
+        fields: fields,
+        where: criteria,
+        order: order,
+        per_page: per_page,
+        page: page,
+        highlight: highlight,
+        aggs: aggregations,
+        body_options: body_options
+      }
+      Rails.logger.warn "🌸 search options: #{terms}, #{options.inspect}"
+
+      # fetch
+      #
+      Page.search terms, options
+    end
 
     def similar_pages
       if tokens = terms_list
