@@ -146,7 +146,82 @@ module Chemistry
       end
 
       def custom_mappings
-        {}
+        {
+          dynamic_templates: [
+            {
+              string_template: {
+                match: "*",
+                match_mapping_type: "string",
+                mapping: {
+                  fields: {
+                    analyzed: {
+                      index: true,
+                      type: "text"
+                    }
+                  },
+                  ignore_above: 30000,
+                  type: "keyword"
+                }
+              }
+            }
+          ],
+          properties: {
+            id: {type: "long"},
+            uid: {type: "keyword"},
+
+            # analyzed for text search
+            title: {
+              type: "text",
+              fields: {
+                analyzed: {
+                  index: true,
+                  type: "text"
+                }
+              }
+            },
+            content: {
+              type: "text",
+              fields: {
+              analyzed: {
+                index: true,
+                type: "text"
+              }
+              },
+              term_vector: "with_positions_offsets"
+            },
+
+            # unexamined, precomputed values for use in views
+            display: {
+              type: "object",
+              enabled: false
+            },
+
+            # structured for retrieval and aggregation
+            published_at: {type: "date"},
+            featured_at: {type: "date"},
+            institution_code: {type: "keyword"},
+
+            # nested list of awards for retrieval and aggregation
+            awards: {
+              type: "nested",
+              properties: {
+                title: {type: "keyword"},
+                year: {type: "short"},
+                years: {type: "short"},
+                award_type_code: {type: "keyword"},
+                country_code: {type: "keyword"},
+                institution_code: {type: "keyword"},
+                location: {type: "geo_point"},
+
+                # more precomputed values for use in views
+                display: {
+                  type: "object",
+                  enabled: false
+                }
+              }
+            }
+          }
+        }
       end
     end
 
@@ -241,7 +316,8 @@ module Chemistry
 
     ## Elasticsearch indexing
     #
-    searchkick searchable: [:path, :working_title, :title, :content, :byline],
+    searchkick callbacks: :async,
+               searchable: [:path, :working_title, :title, :content, :byline],
                word_start: [:title],
                highlight: [:title, :content],
                mappings: custom_mappings

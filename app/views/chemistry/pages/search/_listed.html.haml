@@ -6,7 +6,7 @@
 
 %li.page{id: "page_#{page.id}"}
   - if can?(:edit, @page)
-    = link_to chemistry.editor_page_url(page.id), class: "edit" do
+    = link_to chemistry.editor_page_url(page.id), class: "edit edit_button_symbol" do
       %svg
         %use{href: "#edit_button_symbol"}
 
@@ -14,7 +14,7 @@
     - if page.thumbnail_url
       .image{style: "background-image: url(#{page.thumbnail_url});"}
     - else
-      .no_image
+      .image
 
     .detail
       %h3.title
@@ -33,7 +33,7 @@
           - if page.published_at
             %time
               = l Date.parse(page.published_at), format: :natural
-      
+
           - if highlights && highlights[:content].present?
             = highlights[:content].html_safe
           - else
