@@ -144,6 +144,10 @@ module Chemistry
         end
         branch
       end
+
+      def custom_mappings
+        {}
+      end
     end
 
     def published?
@@ -239,7 +243,8 @@ module Chemistry
     #
     searchkick searchable: [:path, :working_title, :title, :content, :byline],
                word_start: [:title],
-               highlight: [:title, :content]
+               highlight: [:title, :content],
+               mappings: custom_mappings
 
     scope :search_import, -> { includes(:image, :page_collection, :page_category) }
 
