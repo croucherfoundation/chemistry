@@ -9,7 +9,6 @@
     = link_to chemistry.editor_page_url(page.id), class: "edit edit_button_symbol" do
       %svg
         %use{href: "#edit_button_symbol"}
-
   = link_to chemistry.published_page_url(page.path), class: "show" do
     - if page.thumbnail_url
       .image{style: "background-image: url(#{page.thumbnail_url});"}
@@ -38,7 +37,7 @@
             = highlights[:content].html_safe
           - else
             - excerpt = page.summary.presence || page.excerpt.presence || ""
-            = shorten(strip_tags(excerpt).gsub('&nbsp;', ' '), 400)
+            = shorten(strip_tags(excerpt).gsub('&nbsp;', ' '), 300)
 
   - if !minimal && !omit_collection && page.page_collection_name
     = link_to page.page_collection_name, chemistry.page_collection_url(id: page.page_collection), class: "context"

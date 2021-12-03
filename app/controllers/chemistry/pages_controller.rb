@@ -39,7 +39,13 @@ module Chemistry
     end
 
     def search
-      @params = search_params
+      if params[:pp] == 'all'
+        @params = search_params
+      else
+        page = params[:p] || 1
+        per_page = params[:pp] || 20
+        @params = search_params.to_h.merge(p: page, pp: per_page)
+      end
       @q = helpers.strip_tags(@params[:q])
       @sort = params[:sort]
       @page_collection = Chemistry::PageCollection.find_by(slug: @params[:page_collection]) if @params[:page_collection].present?
@@ -183,7 +189,7 @@ module Chemistry
     #
     def controls
       if params[:id].present? && can?(:edit, Chemistry::Page)
-        @page = Chemistry::Page.find(params[:id])
+        @page = Chemistry::Page.find_by(slug: params[:id])
         render layout: false
       else
         head :no_content
@@ -192,7 +198,7 @@ module Chemistry
 
 
     protected
-  
+
     ## Error pages
 
     def page_not_found
@@ -228,7 +234,7 @@ module Chemistry
     end
 
     def search_params
-      params.permit(:page_collection, :page_category, :month, :year, :date_from, :date_to, :q, :sort, :order, :show, :page, terms: [])
+      params.permit(:page_collection, :page_category, :month, :year, :date_from, :date_to, :q, :sort, :order, :show, :page, terms: [], country_codes: [], institution_codes: [], award_type_codes: [], years: [])
     end
 
 
