@@ -38,18 +38,6 @@ module Chemistry
       end
     end
 
-    def file_name
-      if file.attached?
-        file.filename.to_s
-      end
-    end
-
-    def file_content_type
-      if file.attached?
-        file.content_type
-      end
-    end
-
     def file_name=(name)
       if file.attached?
         file.filename = name
@@ -75,15 +63,15 @@ module Chemistry
     end
 
     def file_name
-      file_file_name
+      file.filename if file.attached?
     end
 
     def file_type
-      file_content_type
+      file.content_type if file.attached?
     end
 
     def file_size
-      file_file_size
+      nil
     end
 
     def thumb_url
