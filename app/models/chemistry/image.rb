@@ -24,7 +24,8 @@ module Chemistry
 
     def file_url(size=:full)
       if file.attached?
-        file.variant(self.sizes[size]).processed.url
+        #file.variant(self.sizes[size]).processed.url
+        file.url
       else
         ""
       end
